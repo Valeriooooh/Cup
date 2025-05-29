@@ -16,6 +16,9 @@ pub enum Commands {
         /// name of the project
         project_name: String,
     },
+    Build{
+
+    },
     Run{
 
     }

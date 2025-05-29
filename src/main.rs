@@ -10,6 +10,7 @@ fn main() {
     let cli = Cli::parse();
     match cli.command {
         cli::Commands::New { project_name } => new_project(project_name, None),
-        cli::Commands::Run {} => run_project(),
+        cli::Commands::Run {} => {let _ =run_project();},
+        cli::Commands::Build {} => {},
     }
 }
