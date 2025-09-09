@@ -1,7 +1,6 @@
-use std::{io::Write,process::Command};
+use std::{io::Write, process::Command};
 
 // use dialoguer::{theme::ColorfulTheme, Completion, Input};
-
 
 pub fn new_project(project_name: String, location: Option<String>) {
     // let completion = NewProjectCompletion::default();
@@ -23,37 +22,61 @@ pub fn new_project(project_name: String, location: Option<String>) {
     // }
     let full_path;
     if let Some(loc) = location {
-        full_path = format!("{}/{}",loc,project_name);
-    }else{
-        full_path = format!("{}",project_name);
+        full_path = format!("{}/{}", loc, project_name);
+    } else {
+        full_path = project_name.to_string();
     }
     let _ = create_project_structure(full_path, project_name);
 }
 
-
-fn create_project_structure(path: String, project_name: String) -> Result<(), std::io::Error>{
-    let _ = std::fs::create_dir_all(&path)?;
-    let _ = Command::new("git").arg("init").current_dir(&path).spawn()?.wait_with_output();
-    let _ = std::fs::create_dir_all(format!("{}/src/",&path))?;
-    let _ = std::fs::create_dir_all(format!("{}/lib/",&path))?;
-    let mut main = std::fs::File::create_new(format!("{}/src/Main.java",&path))?;
+fn create_project_structure(path: String, project_name: String) -> Result<(), std::io::Error> {
+    std::fs::create_dir_all(&path)?;
+    std::fs::create_dir_all(format!("{}/src/main/java", &path))?;
+    std::fs::create_dir_all(format!("{}/src/test/java", &path))?;
+    std::fs::create_dir_all(format!("{}/lib/", &path))?;
+    std::fs::create_dir_all(format!("{}/build/", &path))?;
+    std::fs::create_dir_all(format!("{}/doc/", &path))?;
+    let mut main = std::fs::File::create_new(format!("{}/src/main/java/Main.java", &path))?;
     //let package = vec![triple.get(0).unwrap().to_owned(), triple.get(1).unwrap().to_owned()].join(".");
-    let _ = main.write_all(format!("public class Main {{
-    public static void main(String[] args) {{
+    main.write_all(
+        "package main;
+public class Main {
+    public static void main(String[] args) {
         System.out.println(\"Hello, World!\");
-    }}
-}}
-")   .as_bytes())?;
-    let mut toml = std::fs::File::create_new(format!("{}/Cup.toml",&path))?;
-    let _ = toml.write_all(format!("[project]
+    }
+}
+"
+        .to_string()
+        .as_bytes(),
+    )?;
+    let mut toml = std::fs::File::create_new(format!("{}/Cup.toml", &path))?;
+    toml.write_all(
+        format!(
+            "[project]
 name = \"{}\"
 version = \"0.1.0\"
+main_class = \"main.Main\"
+[build]
 
-", project_name).as_bytes())?;
+source_dir = \"src/main/java\"    # Optional: defaults to this
+output_dir = \"build/classes\"     # Optional: defaults to this  
+test_dir = \"src/test/java\"       # Optional: for future testing support
+java_version = \"11\"              # Optional: for future version checking
 
+[dependencies]
+",
+            project_name
+        )
+        .as_bytes(),
+    )?;
+
+    let _ = Command::new("git")
+        .arg("init")
+        .current_dir(&path)
+        .spawn()?
+        .wait_with_output();
     Ok(())
 }
-
 
 // struct NewProjectCompletion {
 //     options: Vec<String>,
