@@ -52,7 +52,7 @@ public class Main {
         )?;
     }
 
-    let project_lang = if kotlin { "kotlin" } else { "java" };
+    let class_name = if kotlin { "MainKt" } else { "Main" };
 
     let mut toml = std::fs::File::create_new(format!("{}/Cup.toml", &path))?;
     toml.write_all(
@@ -60,8 +60,7 @@ public class Main {
             "[project]
 name = \"{}\"
 version = \"0.1.0\"
-main_class = \"main.MainKt\"
-project_lang = \"{}\"
+main_class = \"main.{}\"
 
 [build]
 source_dir = \"src/main\"        # Optional: defaults to this
@@ -72,7 +71,7 @@ doc_dir = \"doc\"                 # Optional: defaults to this
 
 [dependencies]
 ",
-            project_name, project_lang
+            project_name, class_name
         )
         .as_bytes(),
     )?;

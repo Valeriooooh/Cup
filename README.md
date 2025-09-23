@@ -2,9 +2,9 @@
 
 *Because every good developer needs their daily Cup of Java ☕*
 
-[![Made with Love](https://img.shields.io/badge/Made%20with-❤️-red.svg)](https://github.com/yourusername/cup)
-[![Powered by Coffee](https://img.shields.io/badge/Powered%20by-☕-brown.svg)](https://github.com/yourusername/cup)
-[![Language Support](https://img.shields.io/badge/Languages-Java%20%26%20Kotlin-orange.svg)](https://github.com/yourusername/cup)
+[![Made with Love](https://img.shields.io/badge/Made%20with-❤️-red.svg)](https://github.com/Valeriooooh/Cup)
+[![Powered by Coffee](https://img.shields.io/badge/Powered%20by-☕-brown.svg)](https://github.com/Valeriooooh/Cup)
+[![Language Support](https://img.shields.io/badge/Languages-Java%20%26%20Kotlin-orange.svg)](https://github.com/Valeriooooh/Cup)
 
 ## 🤔 What is Cup?
 
@@ -30,7 +30,7 @@ Cup is a blazingly fast ⚡ (okay, maybe just reasonably fast) build system for 
 
 ```bash
 # Clone this beauty
-git clone https://github.com/yourusername/cup
+git clone https://github.com/Valeriooooh/cup
 cd cup
 
 # Build it (you'll need Rust - the language that's faster than your morning coffee routine)
@@ -100,8 +100,7 @@ your-awesome-project/
 [project]
 name = "my-caffeinated-project"
 version = "1.0.0"
-main_class = "com.example.MainKt"  # For Kotlin: MainKt, for Java: Main
-project_lang = "kotlin"             # "java", "kotlin", or "mixed"
+main_class = "main.MainKt"  # For Kotlin: MainKt, for Java: Main
 
 [build]
 source_dir = "src/main"            # Where the magic happens ✨
@@ -222,8 +221,6 @@ git clone https://github.com/yourusername/cup
 cd cup
 cargo build
 # Grab a coffee ☕
-cargo test
-# Grab another coffee ☕
 ```
 
 <!-- ## 🎯 Roadmap (Our Coffee Dreams) -->
