@@ -15,11 +15,11 @@ pub enum Commands {
     New {
         /// name of the project
         project_name: String,
-    },
-    Build{
 
+        #[arg(short, long)]
+        kotlin: bool,
     },
-    Run{
-
-    }
+    Build {},
+    Run {},
+    Doc {},
 }

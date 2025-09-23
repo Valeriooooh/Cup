@@ -1,13 +1,16 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 use toml::Table;
 
 use anyhow::{Context, Result, bail};
+pub mod build;
+pub mod doc;
 pub mod new;
 pub mod run;
-pub mod build;
-
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CupConfig {
@@ -21,6 +24,7 @@ pub struct ProjectConfig {
     pub name: String,
     pub version: String,
     pub main_class: Option<String>,
+    pub project_lang: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -29,6 +33,7 @@ pub struct BuildConfig {
     pub output_dir: Option<String>,
     pub test_dir: Option<String>,
     pub java_version: Option<String>,
+    pub doc_dir: Option<String>,
 }
 
 impl Default for BuildConfig {
@@ -38,6 +43,7 @@ impl Default for BuildConfig {
             output_dir: Some("build/classes".to_string()),
             test_dir: Some("src/test/java".to_string()),
             java_version: Some("11".to_string()),
+            doc_dir: Some("doc".to_string()),
         }
     }
 }
@@ -72,7 +78,10 @@ pub fn collect_java_files(dir: &Path, acc: &mut Vec<PathBuf>) -> Result<()> {
 
         if path.is_dir() {
             collect_java_files(&path, acc)?;
-        } else if path.extension().map_or(false, |ext| ext == "java") {
+        } else if path
+            .extension()
+            .map_or(false, |ext| ext == "java" || ext == "kt")
+        {
             acc.push(path);
         }
     }
