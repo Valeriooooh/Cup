@@ -16,84 +16,246 @@ pub fn compile_project() -> Result<()> {
     );
 
     let build_config = config.build.unwrap_or_default();
-    let java_files = discover_java_files(&build_config)?;
+    let source_files = discover_source_files(&build_config)?;
 
-    if java_files.is_empty() {
-        bail!("No Java files found to compile");
+    if source_files.is_empty() {
+        bail!("No source files found to compile");
     }
 
-    println!("Found {} Java files to compile", java_files.len());
+    println!("Found {} source files to compile", source_files.len());
 
     let output_dir = build_config.output_dir.as_ref().unwrap();
     fs::create_dir_all(output_dir).context("Failed to create output directory")?;
 
-    let _ = compile_java_files(&java_files, &build_config).inspect_err(|e| eprintln!("{}", e));
+    compile_sources(&source_files, &build_config)?;
     Ok(())
 }
 
-pub fn compile_java_files(java_files: &[PathBuf], build_config: &BuildConfig) -> Result<()> {
+pub fn discover_source_files(build_config: &BuildConfig) -> Result<Vec<PathBuf>> {
+    let source_dir = build_config.source_dir.as_ref().unwrap();
+    let mut source_files = Vec::new();
+
+    // Check both java and kotlin directories
+    let java_dir = Path::new(source_dir).join("java");
+    let kotlin_dir = Path::new(source_dir).join("kotlin");
+
+    if java_dir.exists() {
+        collect_source_files(&java_dir, &mut source_files)?;
+    }
+
+    if kotlin_dir.exists() {
+        collect_source_files(&kotlin_dir, &mut source_files)?;
+    }
+
+    // Fallback: if source_dir itself contains source files
+    if source_files.is_empty() && Path::new(source_dir).exists() {
+        collect_source_files(Path::new(source_dir), &mut source_files)?;
+    }
+
+    Ok(source_files)
+}
+
+pub fn collect_source_files(dir: &Path, acc: &mut Vec<PathBuf>) -> Result<()> {
+    let entries = fs::read_dir(dir)
+        .with_context(|| format!("Failed to read directory: {}", dir.display()))?;
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            collect_source_files(&path, acc)?;
+        } else if path
+            .extension()
+            .map_or(false, |ext| ext == "java" || ext == "kt")
+        {
+            acc.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+pub fn compile_sources(source_files: &[PathBuf], build_config: &BuildConfig) -> Result<()> {
     let output_dir = build_config.output_dir.as_ref().unwrap();
 
-    println!("Compiling Java files...");
+    let java_files: Vec<&PathBuf> = source_files
+        .iter()
+        .filter(|f| f.extension().map_or(false, |ext| ext == "java"))
+        .collect();
 
-    let mut cmd_java = Command::new("javac");
-    cmd_java.arg("-d").arg(output_dir);
-    // Add classpath if there are dependencies (placeholder for future enhancement)
-    if let Some(classpath) = build_classpath() {
-        cmd_java.arg("-cp").arg(classpath);
-    }
+    let kotlin_files: Vec<&PathBuf> = source_files
+        .iter()
+        .filter(|f| f.extension().map_or(false, |ext| ext == "kt"))
+        .collect();
 
-    let mut kt_flag = false;
-    let mut cmd_kt = Command::new("kotlinc");
-    cmd_kt.arg("-d").arg(output_dir);
-    // Add classpath if there are dependencies (placeholder for future enhancement)
-    if let Some(classpath) = build_classpath() {
-        cmd_kt.arg("-cp").arg(classpath);
-    }
-    cmd_kt.arg("-include-runtime");
+    let classpath = build_classpath();
 
-    for file in java_files {
-        if let Some(a) = file.extension() {
-            match a.to_str() {
-                Some("java") => {
-                    cmd_java.arg(file);
-                }
-                Some("kt") => {
-                    cmd_kt.arg(file);
-                    kt_flag = true;
-                }
-                None | Some(_) => {}
-            }
-        }
-    }
-    let output = cmd_java
-        .output()
-        .context("Failed to execute javac. Make sure Java is installed and in PATH.")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("Compilation failed:\n{}", stderr);
-    }
-
-    if kt_flag {
-        let output = cmd_kt
-            .output()
-            .context("Failed to execute kotlinc. Make sure Java is installed and in PATH.")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("Compilation failed:\n{}", stderr);
-        }
+    // If we have both Java and Kotlin files, we need to compile them in phases
+    if !java_files.is_empty() && !kotlin_files.is_empty() {
+        println!("Compiling mixed Java/Kotlin project in two phases...");
+        compile_mixed_project(
+            &java_files,
+            &kotlin_files,
+            output_dir,
+            &classpath,
+            build_config,
+        )?;
+    } else if !kotlin_files.is_empty() {
+        println!("Compiling Kotlin files...");
+        compile_kotlin_files(&kotlin_files, output_dir, &classpath, build_config)?;
+    } else if !java_files.is_empty() {
+        println!("Compiling Java files...");
+        compile_java_files(&java_files, output_dir, &classpath)?;
     }
 
     println!("Compilation successful!");
     Ok(())
 }
 
+fn compile_mixed_project(
+    java_files: &[&PathBuf],
+    kotlin_files: &[&PathBuf],
+    output_dir: &str,
+    classpath: &Option<String>,
+    build_config: &BuildConfig,
+) -> Result<()> {
+    println!("Compiling mixed Java/Kotlin project in two phases...");
+
+    // Phase 1: Compile Kotlin files first (kotlinc can automatically reference Java sources)
+    println!("Phase 1: Compiling Kotlin files with Java source references...");
+    compile_kotlin_with_java_sources(
+        kotlin_files,
+        java_files,
+        output_dir,
+        classpath,
+        build_config,
+    )
+    .inspect(|e| eprintln!("{:?}", e));
+
+    // Phase 2: Compile Java files with Kotlin classes in classpath
+    println!("Phase 2: Compiling Java files with Kotlin classes in classpath...");
+    let mut extended_classpath = vec![];
+
+    // Add original classpath if it exists
+    if let Some(cp) = classpath {
+        extended_classpath.push(cp.clone());
+    }
+
+    // Add the output directory (containing compiled Kotlin classes) to classpath
+    extended_classpath.push(output_dir.to_string());
+
+    let combined_classpath = if !extended_classpath.is_empty() {
+        Some(extended_classpath.join(if cfg!(windows) { ";" } else { ":" }))
+    } else {
+        Some(output_dir.to_string())
+    };
+
+    compile_java_files(java_files, output_dir, &combined_classpath)
+        .inspect_err(|e| eprintln!("{:?}", e));
+
+    Ok(())
+}
+
+fn compile_kotlin_with_java_sources(
+    kotlin_files: &[&PathBuf],
+    java_files: &[&PathBuf],
+    output_dir: &str,
+    classpath: &Option<String>,
+    build_config: &BuildConfig,
+) -> Result<()> {
+    let mut cmd = Command::new("kotlinc");
+    cmd.arg("-d").arg(output_dir);
+
+    if let Some(cp) = classpath {
+        cmd.arg("-cp").arg(cp);
+    }
+
+    // Add Kotlin files
+    for file in kotlin_files {
+        cmd.arg(file);
+    }
+
+    // Add Java files so kotlinc can reference them
+    for file in java_files {
+        cmd.arg(file);
+    }
+
+    let output = cmd
+        .output()
+        .context("Failed to execute kotlinc. Make sure Kotlin is installed and in PATH.")
+        .inspect_err(|e| eprintln!("{e}"));
+
+    if !output.unwrap().status.success() {
+        // let stderr = String::from_utf8_lossy(&output.;
+        bail!("Kotlin compilation with Java sources failed:\n{}", "a");
+    }
+
+    Ok(())
+}
+
+fn compile_kotlin_files(
+    kotlin_files: &[&PathBuf],
+    output_dir: &str,
+    classpath: &Option<String>,
+    build_config: &BuildConfig,
+) -> Result<()> {
+    let mut cmd = Command::new("kotlinc");
+    cmd.arg("-d").arg(output_dir);
+
+    if let Some(cp) = classpath {
+        cmd.arg("-cp").arg(cp);
+    }
+
+    for file in kotlin_files {
+        cmd.arg(file);
+    }
+
+    let output = cmd
+        .output()
+        .context("Failed to execute kotlinc. Make sure Kotlin is installed and in PATH.")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Kotlin compilation failed:\n{}", stderr);
+    }
+
+    Ok(())
+}
+
+fn compile_java_files(
+    java_files: &[&PathBuf],
+    output_dir: &str,
+    classpath: &Option<String>,
+) -> Result<()> {
+    let mut cmd = Command::new("javac");
+    cmd.arg("-d").arg(output_dir);
+
+    if let Some(cp) = classpath {
+        cmd.arg("-cp").arg(cp);
+    }
+
+    for file in java_files {
+        cmd.arg(file);
+    }
+
+    let output = cmd
+        .output()
+        .context("Failed to execute javac. Make sure Java is installed and in PATH.")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Java compilation failed:\n{}", stderr);
+    }
+
+    Ok(())
+}
+
 pub fn build_classpath() -> Option<String> {
     let lib_dir = Path::new("lib");
+    let mut jars = vec![];
+
     if lib_dir.exists() {
-        let mut jars = vec![];
         if let Ok(entries) = fs::read_dir(lib_dir) {
             for entry in entries.flatten() {
                 if entry.path().extension().map_or(false, |ext| ext == "jar") {
@@ -101,10 +263,27 @@ pub fn build_classpath() -> Option<String> {
                 }
             }
         }
-        if !jars.is_empty() {
-            println!("{:?}", jars);
-            return Some(jars.join(":"));
+    }
+
+    // Always include Kotlin runtime for Kotlin projects
+    // Try to find Kotlin runtime in common locations
+    let kotlin_runtime_paths = [
+        "/usr/share/kotlin/lib/kotlin-stdlib.jar",
+        "/opt/kotlin/lib/kotlin-stdlib.jar",
+        "~/.kotlinc/lib/kotlin-stdlib.jar",
+        "/usr/local/share/kotlin/lib/kotlin-stdlib.jar",
+    ];
+
+    for path in &kotlin_runtime_paths {
+        if Path::new(path).exists() {
+            jars.push(path.to_string());
+            break;
         }
     }
-    None
+
+    if !jars.is_empty() {
+        Some(jars.join(if cfg!(windows) { ";" } else { ":" }))
+    } else {
+        None
+    }
 }
