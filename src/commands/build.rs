@@ -104,8 +104,8 @@ pub fn compile_sources(source_files: &[PathBuf], build_config: &BuildConfig) -> 
             .build()?;
         let mut buf = vec![];
         let _ = file.read_to_end(&mut buf);
-        dbg!(&buf);
-        dbg!(&tree.root.item.hash);
+        // dbg!(&buf);
+        // dbg!(&tree.root.item.hash);
 
         if tree.root.item.hash == buf {
             return Ok(());
