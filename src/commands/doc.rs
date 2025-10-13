@@ -1,6 +1,7 @@
-use std::{fs, process::Command};
+use std::process::Command;
 
 use anyhow::{Context, Result, bail};
+use clap::builder::OsStr;
 
 use crate::commands::{discover_java_files, load_config};
 
@@ -23,7 +24,9 @@ pub fn create_documentation() -> Result<()> {
     let doc_dir = build_config.doc_dir.clone().unwrap();
     let mut cmd = Command::new("javadoc");
     for i in java_files {
-        cmd.arg(i);
+        if i.extension().is_some_and(|ext| ext == "java") {
+            cmd.arg(i);
+        }
     }
     cmd.arg("-d").arg(doc_dir);
 

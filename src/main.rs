@@ -16,7 +16,7 @@ fn main() {
             kotlin,
         } => new_project(project_name, None, kotlin),
         cli::Commands::Run {} => {
-            let _ = run_project();
+            let _ = run_project().inspect_err(|e| eprintln!("{e}"));
         }
         cli::Commands::Build {} => {
             let _ = compile_project().inspect_err(|e| eprintln!("{e}"));

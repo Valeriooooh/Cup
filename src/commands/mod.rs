@@ -1,8 +1,10 @@
 use std::{
     fs,
+    io::Read,
     path::{Path, PathBuf},
 };
 
+use merkle_hash::MerkleTree;
 use serde::{Deserialize, Serialize};
 use toml::Table;
 
@@ -46,6 +48,24 @@ impl Default for BuildConfig {
             doc_dir: Some("doc".to_string()),
         }
     }
+}
+
+pub fn check_dir_for_changes() -> Result<bool> {
+    if let Ok(mut file) = std::fs::File::open("Cup.lock") {
+        let tree = MerkleTree::builder("src/")
+            .algorithm(merkle_hash::Algorithm::Blake3)
+            .hash_names(false)
+            .build()?;
+        let mut buf = vec![];
+        let _ = file.read_to_end(&mut buf);
+        dbg!(&buf);
+        dbg!(&tree.root.item.hash);
+
+        if tree.root.item.hash == buf {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub fn load_config() -> Result<CupConfig> {

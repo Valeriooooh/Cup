@@ -9,3 +9,5 @@ dialoguer = { version = "0.11.0", features = ["completion", "history", "fuzzy-ma
 toml ="*"
 serde = { version = "*", features = ["derive"] }
 anyhow = "*"
+indicatif = "*"
+merkle_hash = "3.8.0"

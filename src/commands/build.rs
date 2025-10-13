@@ -1,18 +1,31 @@
-use crate::commands::{discover_java_files, load_config};
+use crate::commands::load_config;
 
 use super::BuildConfig;
 use anyhow::{Context, Result, bail};
+use dialoguer::console::{Emoji, style};
+use indicatif::ProgressStyle;
+use merkle_hash::MerkleTree;
 use std::{
+    convert::Infallible,
     fs,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::Command,
 };
 
+static LOOKING_GLASS: Emoji<'_, '_> = Emoji("🔍  ", "");
+
 pub fn compile_project() -> Result<()> {
     let config = load_config()?;
+
+    let spinner_style = ProgressStyle::with_template("{prefix:.bold.dim} {spinner} {wide_msg}")
+        .unwrap()
+        .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ");
+
     println!(
-        "Building project: {} v{}",
-        config.project.name, config.project.version
+        "{} {}Resolving packages...",
+        style("[1/4]").bold().dim(),
+        LOOKING_GLASS
     );
 
     let build_config = config.build.unwrap_or_default();
@@ -22,7 +35,13 @@ pub fn compile_project() -> Result<()> {
         bail!("No source files found to compile");
     }
 
-    println!("Found {} source files to compile", source_files.len());
+    // println!("Found {} source files to compile", source_files.len());
+    println!(
+        "{} {}Found {} files...",
+        style("[2/4]").bold().dim(),
+        LOOKING_GLASS,
+        source_files.len()
+    );
 
     let output_dir = build_config.output_dir.as_ref().unwrap();
     fs::create_dir_all(output_dir).context("Failed to create output directory")?;
@@ -35,7 +54,6 @@ pub fn discover_source_files(build_config: &BuildConfig) -> Result<Vec<PathBuf>>
     let source_dir = build_config.source_dir.as_ref().unwrap();
     let mut source_files = Vec::new();
 
-    // Check both java and kotlin directories
     let java_dir = Path::new(source_dir).join("java");
     let kotlin_dir = Path::new(source_dir).join("kotlin");
 
@@ -67,7 +85,7 @@ pub fn collect_source_files(dir: &Path, acc: &mut Vec<PathBuf>) -> Result<()> {
             collect_source_files(&path, acc)?;
         } else if path
             .extension()
-            .map_or(false, |ext| ext == "java" || ext == "kt")
+            .is_some_and(|ext| ext == "java" || ext == "kt")
         {
             acc.push(path);
         }
@@ -79,21 +97,41 @@ pub fn collect_source_files(dir: &Path, acc: &mut Vec<PathBuf>) -> Result<()> {
 pub fn compile_sources(source_files: &[PathBuf], build_config: &BuildConfig) -> Result<()> {
     let output_dir = build_config.output_dir.as_ref().unwrap();
 
+    if let Ok(mut file) = std::fs::File::open("Cup.lock") {
+        let tree = MerkleTree::builder("src/")
+            .algorithm(merkle_hash::Algorithm::Blake3)
+            .hash_names(false)
+            .build()?;
+        let mut buf = vec![];
+        let _ = file.read_to_end(&mut buf);
+        dbg!(&buf);
+        dbg!(&tree.root.item.hash);
+
+        if tree.root.item.hash == buf {
+            return Ok(());
+        }
+    }
+
     let java_files: Vec<&PathBuf> = source_files
         .iter()
-        .filter(|f| f.extension().map_or(false, |ext| ext == "java"))
+        .filter(|f| f.extension().is_some_and(|ext| ext == "java"))
         .collect();
 
     let kotlin_files: Vec<&PathBuf> = source_files
         .iter()
-        .filter(|f| f.extension().map_or(false, |ext| ext == "kt"))
+        .filter(|f| f.extension().is_some_and(|ext| ext == "kt"))
         .collect();
 
     let classpath = build_classpath();
 
     // If we have both Java and Kotlin files, we need to compile them in phases
     if !java_files.is_empty() && !kotlin_files.is_empty() {
-        println!("Compiling mixed Java/Kotlin project in two phases...");
+        // println!("Compiling mixed Java/Kotlin project in two phases...");
+        println!(
+            "{} {}Compiling Java and Kotlin Files...",
+            style("[3/4]").bold().dim(),
+            LOOKING_GLASS
+        );
         compile_mixed_project(
             &java_files,
             &kotlin_files,
@@ -102,14 +140,37 @@ pub fn compile_sources(source_files: &[PathBuf], build_config: &BuildConfig) -> 
             build_config,
         )?;
     } else if !kotlin_files.is_empty() {
-        println!("Compiling Kotlin files...");
+        // println!("Compiling Kotlin files...");
+        println!(
+            "{} {}Compiling Kotlin Files...",
+            style("[3/4]").bold().dim(),
+            LOOKING_GLASS
+        );
         compile_kotlin_files(&kotlin_files, output_dir, &classpath, build_config)?;
     } else if !java_files.is_empty() {
-        println!("Compiling Java files...");
+        println!(
+            "{} {}Compiling Java Files...",
+            style("[3/4]").bold().dim(),
+            LOOKING_GLASS
+        );
         compile_java_files(&java_files, output_dir, &classpath)?;
     }
+    let tree = MerkleTree::builder("src/")
+        .algorithm(merkle_hash::Algorithm::Blake3)
+        .hash_names(false)
+        .build()?;
+    if let Ok(mut file) = std::fs::File::create("Cup.lock") {
+        let _ = file
+            .write(&tree.root.item.hash)
+            .expect("error writing Cup.lock");
+    }
 
-    println!("Compilation successful!");
+    println!(
+        "{} {}Compilation Successful!!!",
+        style("[4/4]").bold().dim(),
+        LOOKING_GLASS
+    );
+
     Ok(())
 }
 
@@ -120,21 +181,19 @@ fn compile_mixed_project(
     classpath: &Option<String>,
     build_config: &BuildConfig,
 ) -> Result<()> {
-    println!("Compiling mixed Java/Kotlin project in two phases...");
+    // println!("Compiling mixed Java/Kotlin project in two phases...");
 
-    // Phase 1: Compile Kotlin files first (kotlinc can automatically reference Java sources)
-    println!("Phase 1: Compiling Kotlin files with Java source references...");
-    compile_kotlin_with_java_sources(
+    // println!("Phase 1: Compiling Kotlin files with Java source references...");
+    let _ = compile_kotlin_with_java_sources(
         kotlin_files,
         java_files,
         output_dir,
         classpath,
         build_config,
     )
-    .inspect(|e| eprintln!("{:?}", e));
+    .inspect_err(|e| eprintln!("{:?}", e));
 
-    // Phase 2: Compile Java files with Kotlin classes in classpath
-    println!("Phase 2: Compiling Java files with Kotlin classes in classpath...");
+    // println!("Phase 2: Compiling Java files with Kotlin classes in classpath...");
     let mut extended_classpath = vec![];
 
     // Add original classpath if it exists
@@ -151,8 +210,10 @@ fn compile_mixed_project(
         Some(output_dir.to_string())
     };
 
-    compile_java_files(java_files, output_dir, &combined_classpath)
+    let _ = compile_java_files(java_files, output_dir, &combined_classpath)
         .inspect_err(|e| eprintln!("{:?}", e));
+
+    // TODO: make a Cup.lock to hash the files and prevent successive needless compilations
 
     Ok(())
 }
@@ -162,7 +223,7 @@ fn compile_kotlin_with_java_sources(
     java_files: &[&PathBuf],
     output_dir: &str,
     classpath: &Option<String>,
-    build_config: &BuildConfig,
+    _build_config: &BuildConfig,
 ) -> Result<()> {
     let mut cmd = Command::new("kotlinc");
     cmd.arg("-d").arg(output_dir);
@@ -198,7 +259,7 @@ fn compile_kotlin_files(
     kotlin_files: &[&PathBuf],
     output_dir: &str,
     classpath: &Option<String>,
-    build_config: &BuildConfig,
+    _build_config: &BuildConfig,
 ) -> Result<()> {
     let mut cmd = Command::new("kotlinc");
     cmd.arg("-d").arg(output_dir);
@@ -255,12 +316,12 @@ pub fn build_classpath() -> Option<String> {
     let lib_dir = Path::new("lib");
     let mut jars = vec![];
 
-    if lib_dir.exists() {
-        if let Ok(entries) = fs::read_dir(lib_dir) {
-            for entry in entries.flatten() {
-                if entry.path().extension().map_or(false, |ext| ext == "jar") {
-                    jars.push(entry.path().to_string_lossy().to_string());
-                }
+    if lib_dir.exists()
+        && let Ok(entries) = fs::read_dir(lib_dir)
+    {
+        for entry in entries.flatten() {
+            if entry.path().extension().is_some_and(|ext| ext == "jar") {
+                jars.push(entry.path().to_string_lossy().to_string());
             }
         }
     }
